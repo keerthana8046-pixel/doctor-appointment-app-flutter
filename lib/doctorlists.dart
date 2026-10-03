@@ -26,18 +26,28 @@ class DoctorList extends StatelessWidget {
             colors: [Color(0xFFF4F9FF), Color(0xFFE8F3FF)],
           ),
         ),
+        // --- FIX IKKADA ---
         child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('doctors').snapshots(),
+          stream: FirebaseFirestore.instance
+              .collection('users') // doctors kadu, users
+              .where('role', whereIn: ['doctor', 'Doctor']) // rendu check
+              .snapshots(),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return const Center(child: Text('Unable to load doctors'));
+              return Center(
+                child: Text('Unable to load doctors: ${snapshot.error}'),
+              );
             }
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
             final doctors = snapshot.data?.docs ?? [];
             if (doctors.isEmpty) {
-              return const Center(child: Text('No doctors available'));
+              return const Center(
+                child: Text(
+                  'No doctors available\nCreate a doctor account first',
+                ),
+              );
             }
             return ListView.builder(
               padding: const EdgeInsets.all(16),
@@ -46,9 +56,12 @@ class DoctorList extends StatelessWidget {
                 final document = doctors[index];
                 final data = document.data();
                 final doctor = Doctor(
-                  id: data['id'] as String? ?? document.id,
+                  id: document.id, // Firestore id ye doctor id
                   name: data['name'] as String? ?? 'Doctor',
-                  specialization: data['specialty'] as String? ?? 'Specialist',
+                  specialization:
+                      data['specialization'] as String? ??
+                      data['specialty'] as String? ??
+                      'Specialist',
                   qualification: data['qualification'] as String? ?? '',
                   experience: '${data['experience'] ?? 'Not specified'}',
                   phone: data['phone'] as String? ?? '',

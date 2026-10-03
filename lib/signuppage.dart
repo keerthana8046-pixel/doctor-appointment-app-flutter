@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -10,7 +11,6 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   bool isPatient = true;
-
   final _formKey = GlobalKey<FormState>();
 
   final nameController = TextEditingController();
@@ -21,6 +21,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final confirmPasswordController = TextEditingController();
 
   String? selectedSpecialization;
+  bool isLoading = false;
 
   final List<String> specializations = [
     "Cardiologist",
@@ -31,10 +32,8 @@ class _SignupScreenState extends State<SignupScreen> {
     "General Physician",
   ];
 
-  void signup() {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  Future<void> signup() async {
+    if (!_formKey.currentState!.validate()) return;
 
     if (!isPatient && selectedSpecialization == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -43,18 +42,43 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isPatient
-              ? "Patient account created successfully!"
-              : "Doctor account created successfully!",
-        ),
-      ),
-    );
+    setState(() => isLoading = true);
+    try {
+      // 1. Firebase Auth lo account create
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text.trim(),
+      );
 
-    // After successful signup
-    // you can navigate to LoginScreen here.
+      // 2. Firestore lo details save - AUTH CONNECT AYYINDI IKKADA
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(cred.user!.uid)
+          .set({
+            'name': nameController.text.trim(),
+            'email': emailController.text.trim(),
+            'phone': phoneController.text.trim(),
+            'username': usernameController.text.trim(),
+            'role': isPatient ? 'patient' : 'doctor',
+            'specialization': isPatient ? null : selectedSpecialization,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("${isPatient ? 'Patient' : 'Doctor'} account created!"),
+        ),
+      );
+
+      // Login ki vellu
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message ?? 'Signup failed')));
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
   }
 
   @override
@@ -65,7 +89,6 @@ class _SignupScreenState extends State<SignupScreen> {
     usernameController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
-
     super.dispose();
   }
 
@@ -73,73 +96,52 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Create Account")),
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
-
         child: Form(
           key: _formKey,
-
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-
             children: [
               const Center(
                 child: Icon(Icons.local_hospital, size: 70, color: Colors.blue),
               ),
-
               const SizedBox(height: 15),
-
               const Center(
                 child: Text(
                   "Hospital Management System",
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
               ),
-
               const SizedBox(height: 25),
-
               const Text(
                 "Register As",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-
               const SizedBox(height: 10),
-
               Row(
                 children: [
                   Expanded(
                     child: ChoiceChip(
                       label: const Text("Patient"),
                       selected: isPatient,
-                      onSelected: (value) {
-                        setState(() {
-                          isPatient = true;
-                          selectedSpecialization = null;
-                        });
-                      },
+                      onSelected: (v) => setState(() {
+                        isPatient = true;
+                        selectedSpecialization = null;
+                      }),
                     ),
                   ),
-
                   const SizedBox(width: 10),
-
                   Expanded(
                     child: ChoiceChip(
                       label: const Text("Doctor"),
                       selected: !isPatient,
-                      onSelected: (value) {
-                        setState(() {
-                          isPatient = false;
-                        });
-                      },
+                      onSelected: (v) => setState(() => isPatient = false),
                     ),
                   ),
                 ],
               ),
-
               const SizedBox(height: 20),
-
-              // Full Name
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(
@@ -147,214 +149,133 @@ class _SignupScreenState extends State<SignupScreen> {
                   prefixIcon: Icon(Icons.person),
                   border: OutlineInputBorder(),
                 ),
-
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return "Please enter your name";
-                  }
-
-                  return null;
-                },
+                validator: (v) => v == null || v.trim().isEmpty
+                    ? "Please enter your name"
+                    : null,
               ),
-
               const SizedBox(height: 15),
-
-              // Email
               TextFormField(
                 controller: emailController,
                 keyboardType: TextInputType.emailAddress,
-
                 decoration: const InputDecoration(
                   labelText: "Email",
                   prefixIcon: Icon(Icons.email),
                   border: OutlineInputBorder(),
                 ),
-
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty)
                     return "Please enter email";
-                  }
-
-                  if (!value.contains("@")) {
-                    return "Enter a valid email";
-                  }
-
+                  if (!v.contains("@")) return "Enter a valid email";
                   return null;
                 },
               ),
-
               const SizedBox(height: 15),
-
-              // Phone
               TextFormField(
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
-
                 decoration: const InputDecoration(
                   labelText: "Phone Number",
                   prefixIcon: Icon(Icons.phone),
                   border: OutlineInputBorder(),
                 ),
-
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty)
                     return "Please enter phone number";
-                  }
-
-                  if (value.length != 10) {
+                  if (v.length != 10)
                     return "Phone number must contain 10 digits";
-                  }
-
                   return null;
                 },
               ),
-
               const SizedBox(height: 15),
-
-              // Doctor specialization
               if (!isPatient) ...[
                 DropdownButtonFormField<String>(
-                  initialValue: selectedSpecialization,
-
+                  value:
+                      selectedSpecialization, // initialValue kadu, value vadali
                   decoration: const InputDecoration(
                     labelText: "Specialization",
                     prefixIcon: Icon(Icons.medical_services),
                     border: OutlineInputBorder(),
                   ),
-
-                  items: specializations.map((specialization) {
-                    return DropdownMenuItem(
-                      value: specialization,
-                      child: Text(specialization),
-                    );
-                  }).toList(),
-
-                  onChanged: (value) {
-                    setState(() {
-                      selectedSpecialization = value;
-                    });
-                  },
-
-                  validator: (value) {
-                    if (!isPatient && value == null) {
-                      return "Select specialization";
-                    }
-
-                    return null;
-                  },
+                  items: specializations
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => selectedSpecialization = value),
+                  validator: (value) => !isPatient && value == null
+                      ? "Select specialization"
+                      : null,
                 ),
-
                 const SizedBox(height: 15),
               ],
-
-              // Username
               TextFormField(
                 controller: usernameController,
-
                 decoration: const InputDecoration(
                   labelText: "Username",
                   prefixIcon: Icon(Icons.account_circle),
                   border: OutlineInputBorder(),
                 ),
-
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return "Please enter username";
-                  }
-
-                  return null;
-                },
+                validator: (v) => v == null || v.trim().isEmpty
+                    ? "Please enter username"
+                    : null,
               ),
-
               const SizedBox(height: 15),
-
-              // Password
               TextFormField(
                 controller: passwordController,
                 obscureText: true,
-
                 decoration: const InputDecoration(
                   labelText: "Password",
                   prefixIcon: Icon(Icons.lock),
                   border: OutlineInputBorder(),
                 ),
-
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return "Please enter password";
-                  }
-
-                  if (value.length < 6) {
+                validator: (v) {
+                  if (v == null || v.isEmpty) return "Please enter password";
+                  if (v.length < 6)
                     return "Password must contain at least 6 characters";
-                  }
-
                   return null;
                 },
               ),
-
               const SizedBox(height: 15),
-
-              // Confirm Password
               TextFormField(
                 controller: confirmPasswordController,
                 obscureText: true,
-
                 decoration: const InputDecoration(
                   labelText: "Confirm Password",
                   prefixIcon: Icon(Icons.lock_outline),
                   border: OutlineInputBorder(),
                 ),
-
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return "Please confirm password";
-                  }
-
-                  if (value != passwordController.text) {
+                validator: (v) {
+                  if (v == null || v.isEmpty) return "Please confirm password";
+                  if (v != passwordController.text)
                     return "Passwords do not match";
-                  }
-
                   return null;
                 },
               ),
-
               const SizedBox(height: 25),
-
-              // Signup Button
               SizedBox(
                 width: double.infinity,
                 height: 52,
-
                 child: ElevatedButton(
-                  onPressed: signup,
-
-                  child: Text(
-                    isPatient
-                        ? "Create Patient Account"
-                        : "Create Doctor Account",
-
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  onPressed: isLoading ? null : signup,
+                  child: isLoading
+                      ? const CircularProgressIndicator()
+                      : Text(
+                          isPatient
+                              ? "Create Patient Account"
+                              : "Create Doctor Account",
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
-
               const SizedBox(height: 15),
-
-              // Login
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-
                 children: [
                   const Text("Already have an account? "),
-
                   TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-
+                    onPressed: () => Navigator.pop(context),
                     child: const Text("Login"),
                   ),
                 ],
